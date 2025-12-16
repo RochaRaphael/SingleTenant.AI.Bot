@@ -1,0 +1,26 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      },
+      "enableLiveMetricsFilters": true
+    }
+  },
+  "logLevel": {
+    // Regra principal: Apenas Warning e acima (Error, Critical)
+    "default": "Warning",
+
+    // Silencia a maioria dos logs de início/fim de execução da Function
+    "Host.Results": "Error",
+
+    // Silencia o ruído do cliente HTTP (.NET Tracing)
+    "System.Net.Http.HttpClient": "Warning"
+  },
+  "queues": {
+    "batchSize": 1,
+    "visibilityTimeout": "00:01:00" // Se falhar, espera 1 minuto antes de tentar de novo
+  }
+}

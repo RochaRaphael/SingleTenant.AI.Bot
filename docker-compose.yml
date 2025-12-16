@@ -1,0 +1,47 @@
+version: '3.3'
+
+services:
+  evolution-api:
+    container_name: evolution_api
+    image: evoapicloud/evolution-api:v2.3.6 
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - AUTHENTICATION_API_KEY=4FD0B7HJD0G79FBHDG9BHJDG9B57E11
+      - SERVER_TYPE=http
+      - SERVER_PORT=8080
+      - SERVER_URL=http://localhost:8080
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://evolution:evolutionpass@postgres:5432/evolution
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://redis:6379/0
+      - DEL_INSTANCE=false
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-accelerated-2d-canvas --no-first-run --no-zygote --single-process --disable-gpu
+
+  postgres:
+    container_name: evolution_postgres
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=evolution
+      - POSTGRES_PASSWORD=evolutionpass
+      - POSTGRES_DB=evolution
+    volumes:
+      - evolution_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    container_name: evolution_redis
+    image: redis:alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - evolution_redis_data:/data
+
+volumes:
+  evolution_postgres_data:
+  evolution_redis_data:
