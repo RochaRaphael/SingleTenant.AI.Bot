@@ -1,6 +1,6 @@
-﻿using StackExchange.Redis;
+﻿using OpenAI.Chat;
+using StackExchange.Redis;
 using System.Text.Json;
-using OpenAI.Chat;
 
 namespace BKBot.Applications.Services
 {
@@ -29,7 +29,7 @@ namespace BKBot.Applications.Services
             }
 
             // Deserialize to DTO intermediary since ChatMessage is abstract
-            var historyDtos = JsonSerializer.Deserialize<List<MessageDto>>(data);
+            var historyDtos = JsonSerializer.Deserialize<List<MessageDto>>(data.ToString());
 
             var chatMessages = new List<ChatMessage>();
             foreach (var item in historyDtos)
@@ -50,7 +50,7 @@ namespace BKBot.Applications.Services
             var data = await _redisDb.StringGetAsync(key);
             var history = data.IsNullOrEmpty
                 ? new List<MessageDto>()
-                : JsonSerializer.Deserialize<List<MessageDto>>(data);
+                : JsonSerializer.Deserialize<List<MessageDto>>(data.ToString());
 
             history.Add(new MessageDto { Role = "user", Content = userText });
             history.Add(new MessageDto { Role = "assistant", Content = aiResponse });

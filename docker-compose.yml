@@ -11,7 +11,7 @@ services:
       - postgres
       - redis-evolution
     environment:
-      - AUTHENTICATION_API_KEY=429683C4C9DF6984VDF9AFCCE10F7D57E11
+      - AUTHENTICATION_API_KEY=42968F67V9DF9V76HDSF98V7HDE10F7D57E11
       - SERVER_TYPE=http
       - SERVER_PORT=8080
       - SERVER_URL=http://localhost:8080
