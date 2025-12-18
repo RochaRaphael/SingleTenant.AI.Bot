@@ -95,6 +95,9 @@ namespace BKBot.Function
                     // Handle race condition where buffer might be empty due to parallel execution
                     if (string.IsNullOrWhiteSpace(consolidatedText)) return;
 
+                    // Indicate to user that the bot is composing a reply
+                    await _evolutionService.SetPresenceAsync(phone, "composing", log);
+
                     const int OPENAI_CHAR_LIMIT = 1000;
                     if (consolidatedText.Length > OPENAI_CHAR_LIMIT)
                     {
@@ -151,7 +154,7 @@ namespace BKBot.Function
 
             var messages = new List<ChatMessage>
             {
-                new SystemChatMessage("You strictly return the number of characters provided by the user.")
+                new SystemChatMessage("Simply return the number of characters the message has.")
             };
 
             messages.AddRange(history);

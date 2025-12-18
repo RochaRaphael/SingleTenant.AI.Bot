@@ -110,5 +110,37 @@ namespace BKBot.Applications.Services
                 return null;
             }
         }
+
+        public async Task SetPresenceAsync(string to, string presenceType, ILogger log)
+        {
+            try
+            {
+                string number = to.Replace("whatsapp:", "").Replace("+", "").Trim();
+                string url = $"{BASE_URL}/chat/sendPresence/{INSTANCE_NAME}";
+
+                var payload = new
+                {
+                    number,
+                    presence = presenceType,
+                    delay = 8000
+                };
+
+                var jsonContent = new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
+
+                _httpClient.DefaultRequestHeaders.Clear();
+                _httpClient.DefaultRequestHeaders.Add("apikey", Environment.GetEnvironmentVariable("Docker-Evolution"));
+
+                var response = await _httpClient.PostAsync(url, jsonContent);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    log.LogWarning("[Evolution] Failed to set presence. Status: {StatusCode}", response.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning("[Evolution] Error setting presence: {Message}", ex.Message);
+            }
+        }
     }
 }
