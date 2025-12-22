@@ -1,13 +1,14 @@
-﻿using BKBot.Applications.Models;
-using Microsoft.Azure.Functions.Worker;
-using System.ClientModel;
-using Microsoft.Extensions.Logging;
+﻿using Azure;
 using Azure.AI.OpenAI;
-using OpenAI.Chat;
-using BKBot.Applications.Services;
-using Azure;
-using StackExchange.Redis;
 using Azure.Storage.Queues;
+using BKBot.Applications.Models;
+using BKBot.Applications.Services;
+using BKBot.Applications.Services.LLMServices;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Extensions.Logging;
+using OpenAI.Chat;
+using StackExchange.Redis;
+using System.ClientModel;
 using System.Text.Json;
 
 namespace BKBot.Function
@@ -15,29 +16,26 @@ namespace BKBot.Function
     public class MessageConsumer
     {
         private readonly EvolutionService _evolutionService;
-        private readonly AzureOpenAIClient _openAIClient;
-        private readonly ChatHistoryService _chatHistoryService;
-        private readonly BufferService _bufferService;
+        private readonly ChatSessionService _chatSessionService;
         private readonly IDatabase _redisDb;
         private readonly QueueClient _queueClient;
+        private readonly ILLMService _llmService;
 
         // Safety margin slightly lower than producer's debounce to account for latency
-        private readonly TimeSpan _debounceThreshold = TimeSpan.FromSeconds(4.8);
+        private readonly TimeSpan _debounceThreshold = TimeSpan.FromSeconds(3.8);
 
         public MessageConsumer(
             EvolutionService evolutionService,
-            AzureOpenAIClient openAIClient,
-            ChatHistoryService chatHistoryService,
-            BufferService bufferService,
+            ChatSessionService chatSessionService,
             IConnectionMultiplexer redisConnection,
-            QueueClient queueClient)
+            QueueClient queueClient,
+            ILLMService llmService)
         {
             _evolutionService = evolutionService;
-            _openAIClient = openAIClient;
-            _chatHistoryService = chatHistoryService;
-            _bufferService = bufferService;
+            _chatSessionService = chatSessionService;
             _redisDb = redisConnection.GetDatabase();
             _queueClient = queueClient;
+            _llmService = llmService;
         }
 
         /// <summary>
@@ -52,13 +50,14 @@ namespace BKBot.Function
             var log = executionContext.GetLogger("HandleMessageReply");
             string phone = queueItem.Phone;
             string lockKey = $"processing_lock:{phone}";
+            const int MAX_CHAR_LIMIT = 1000;
 
             using (log.BeginScope(new Dictionary<string, object> { ["PhoneNumber"] = phone }))
             {
                 //DEBOUNCE CHECK
                 // If the user has typed something new recently (LastActivity < Threshold),
                 // we discard this specific trigger and wait for the subsequent one.
-                TimeSpan timeSinceLastMsg = await _bufferService.GetTimeSinceLastActivityAsync(phone);
+                TimeSpan timeSinceLastMsg = await _chatSessionService.GetTimeSinceLastActivityAsync(phone);
                 if (timeSinceLastMsg < _debounceThreshold)
                     return;
 
@@ -76,10 +75,10 @@ namespace BKBot.Function
                 try
                 {
                     // Rate Limiting Policy (20 msgs/24h)
-                    if (await _bufferService.IsRateLimitedAsync(phone))
+                    if (await _chatSessionService.IsRateLimitedAsync(phone))
                     {
                         log.LogWarning("[RATE LIMIT] Daily quota reached.");
-                        await _bufferService.GetAndClearBufferAsync(phone); // Flush buffer
+                        await _chatSessionService.GetAndClearBufferAsync(phone); // Flush buffer
 
                         await _evolutionService.SendMessageAsync(
                             phone,
@@ -90,7 +89,7 @@ namespace BKBot.Function
                     }
 
                     // Retrieve and flush the aggregated message buffer
-                    string consolidatedText = await _bufferService.GetAndClearBufferAsync(phone);
+                    string consolidatedText = await _chatSessionService.GetAndClearBufferAsync(phone);
 
                     // Handle race condition where buffer might be empty due to parallel execution
                     if (string.IsNullOrWhiteSpace(consolidatedText)) return;
@@ -98,8 +97,7 @@ namespace BKBot.Function
                     // Indicate to user that the bot is composing a reply
                     await _evolutionService.SetPresenceAsync(phone, "composing", log);
 
-                    const int OPENAI_CHAR_LIMIT = 1000;
-                    if (consolidatedText.Length > OPENAI_CHAR_LIMIT)
+                    if (consolidatedText.Length > MAX_CHAR_LIMIT)
                     {
                         log.LogWarning("[VALIDATION] Message length exceeds OpenAI policy. Size: {MsgSize}", consolidatedText.Length);
                         await _evolutionService.SendMessageAsync(
@@ -110,12 +108,15 @@ namespace BKBot.Function
                         return;
                     }
 
-                    var chatHistory = await _chatHistoryService.GetHistoryAsync(phone);
+                    string? currentState = await _chatSessionService.GetStateAsync(phone);
 
-                    string responseText = await GetOpenAIResponse(consolidatedText, chatHistory);
+                    string responseText = await _llmService.GetAIResponseAsync(consolidatedText, currentState);
 
                     await _evolutionService.SendMessageAsync(phone, responseText, log);
-                    await _chatHistoryService.SaveInteractionAsync(phone, consolidatedText, responseText);
+                    
+                    string newState = await _llmService.GenerateNewStateAsync(currentState, consolidatedText, responseText);
+
+                    await _chatSessionService.SaveStateAsync(phone, newState);
                 }
                 catch (ClientResultException ex) when (ex.Status == 429)
                 {
@@ -145,31 +146,6 @@ namespace BKBot.Function
                 visibilityTimeout: TimeSpan.FromSeconds(delaySeconds),
                 timeToLive: TimeSpan.FromMinutes(60)
             );
-        }
-
-        private async Task<string> GetOpenAIResponse(string userQuery, List<ChatMessage> history)
-        {
-            string deployment = "gpt-35-turbo-Portfolio";
-            ChatClient chatClient = _openAIClient.GetChatClient(deployment);
-
-            var messages = new List<ChatMessage>
-            {
-                new SystemChatMessage("Simply return the number of characters the message has.")
-            };
-
-            messages.AddRange(history);
-            messages.Add(new UserChatMessage(userQuery));
-
-            var completionOptions = new ChatCompletionOptions
-            {
-                Temperature = 0.06f,
-                MaxOutputTokenCount = 700,
-                FrequencyPenalty = 0.5f,
-                PresencePenalty = 0.6f,
-            };
-
-            ChatCompletion completion = await chatClient.CompleteChatAsync(messages, completionOptions);
-            return completion.Content[0].Text;
         }
     }
 }

@@ -3,25 +3,20 @@ using BKBot.Applications.Models;
 
 namespace BKBot.Applications.Services
 {
-    /// <summary>
-    /// Manages the temporary message buffer in Redis to support the Debounce pattern.
-    /// </summary>
-    public class BufferService
+    public class ChatSessionService
     {
         private readonly IDatabase _redisDb;
         private readonly TimeSpan _bufferExpiration = TimeSpan.FromMinutes(10);
+        private readonly TimeSpan _expiration = TimeSpan.FromHours(24);
+        private readonly int _dailyMessageLimit = 20;
 
-        public BufferService(IConnectionMultiplexer connectionMultiplexer)
+        public ChatSessionService(IConnectionMultiplexer connectionMultiplexer)
         {
             _redisDb = connectionMultiplexer.GetDatabase();
         }
 
-        /// <summary>
-        /// Appends text to the user's buffer and updates the last activity timestamp atomically.
-        /// </summary>
         public async Task AddToBufferAsync(string phoneNumber, string text)
         {
-            // Use Batch execution to minimize round-trips to Redis
             var batch = _redisDb.CreateBatch();
 
             string listKey = $"msg_buffer:{phoneNumber}";
@@ -30,7 +25,6 @@ namespace BKBot.Applications.Services
             var task1 = batch.ListRightPushAsync(listKey, text);
             var task2 = batch.KeyExpireAsync(listKey, _bufferExpiration);
 
-            // Store Ticks for high-precision time comparison
             var task3 = batch.StringSetAsync(timeKey, DateTime.UtcNow.Ticks);
             var task4 = batch.KeyExpireAsync(timeKey, _bufferExpiration);
 
@@ -51,9 +45,6 @@ namespace BKBot.Applications.Services
             return DateTime.UtcNow - lastActivity;
         }
 
-        /// <summary>
-        /// Retrieves all buffered messages, concatenates them, and clears the buffer in a single operation logic.
-        /// </summary>
         public async Task<string> GetAndClearBufferAsync(string phoneNumber)
         {
             string listKey = $"msg_buffer:{phoneNumber}";
@@ -67,23 +58,33 @@ namespace BKBot.Applications.Services
 
             return string.Join("\n", values.Select(v => v.ToString()));
         }
-
-        /// <summary>
-        /// Checks if the user has exceeded the daily message quota using a rolling counter.
-        /// </summary>
         public async Task<bool> IsRateLimitedAsync(string phoneNumber)
         {
             string rateKey = $"rate_limit:{phoneNumber}";
 
             long count = await _redisDb.StringIncrementAsync(rateKey);
-
-            // Set TTL only on first increment
             if (count == 1)
             {
                 await _redisDb.KeyExpireAsync(rateKey, TimeSpan.FromHours(24));
             }
 
-            return count > 20;
+            return count > _dailyMessageLimit;
+        }
+
+        public async Task<string?> GetStateAsync(string phoneNumber)
+        {
+            string key = $"chat_state:{phoneNumber}";
+            var data = await _redisDb.StringGetAsync(key);
+
+            return data.IsNullOrEmpty ? null : data.ToString();
+        }
+
+        public async Task SaveStateAsync(string phoneNumber, string newState)
+        {
+            if (string.IsNullOrWhiteSpace(newState)) return;
+
+            string key = $"chat_state:{phoneNumber}";
+            await _redisDb.StringSetAsync(key, newState, _expiration);
         }
     }
 }

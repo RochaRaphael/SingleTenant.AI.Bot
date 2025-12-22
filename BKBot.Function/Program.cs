@@ -2,6 +2,7 @@ using Azure;
 using Azure.AI.OpenAI;
 using Azure.Storage.Queues;
 using BKBot.Applications.Services;
+using BKBot.Applications.Services.LLMServices;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -13,6 +14,8 @@ var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<EvolutionService>();
+builder.Services.AddSingleton<ILLMService, OpenAIService>();
+//builder.Services.AddSingleton<ILLMService, GeminiService>();
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
@@ -21,9 +24,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     return ConnectionMultiplexer.Connect(connectionString);
 });
 
-builder.Services.AddScoped<BufferService>();
-builder.Services.AddScoped<ChatHistoryService>();
-
+builder.Services.AddSingleton<ChatSessionService>();
 
 builder.Services.AddSingleton<QueueClient>(sp =>
 {

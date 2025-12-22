@@ -12,20 +12,20 @@ namespace BKBot.Function
     public class MessageProducer
     {
         private readonly ILogger<MessageProducer> _logger;
-        private readonly BufferService _bufferService;
+        private readonly ChatSessionService _chatSessionService;
         private readonly QueueClient _queueClient;
         private readonly EvolutionService _evolutionService;
 
         // Debounce window to allow users to finish typing before processing triggers
-        private const int DebounceSeconds = 5;
+        private const int DebounceSeconds = 4;
 
         // Safeguard to protect Queue and Redis payloads
         private const int MAX_INFRA_CHAR_LIMIT = 5000;
 
-        public MessageProducer(ILogger<MessageProducer> logger, BufferService bufferService, QueueClient queueClient, EvolutionService evolutionService)
+        public MessageProducer(ILogger<MessageProducer> logger, ChatSessionService chatSessionService, QueueClient queueClient, EvolutionService evolutionService)
         {
             _logger = logger;
-            _bufferService = bufferService;
+            _chatSessionService = chatSessionService;
             _queueClient = queueClient;
             _evolutionService = evolutionService;
         }
@@ -72,7 +72,7 @@ namespace BKBot.Function
                     }
 
                     // Buffers the message in Redis and updates the 'LastActivity' timestamp
-                    await _bufferService.AddToBufferAsync(messageData.Phone, messageData.Text);
+                    await _chatSessionService.AddToBufferAsync(messageData.Phone, messageData.Text);
 
                     // Queue Trigger:
                     // We schedule the message with a visibility timeout equal to the debounce window.
