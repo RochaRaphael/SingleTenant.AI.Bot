@@ -63,9 +63,9 @@ namespace BKBot.Function
 
                 //DISTRIBUTED LOCK (Idempotency)
                 // Ensures only one function instance processes the buffer per user at a time.
-                bool isLocked = !await _redisDb.StringSetAsync(lockKey, "LOCKED", TimeSpan.FromMinutes(5), When.NotExists);
+                bool isLocked = await _redisDb.StringSetAsync(lockKey, "LOCKED", TimeSpan.FromMinutes(5), When.NotExists);
 
-                if (isLocked)
+                if (!isLocked)
                 {
                     // Contention detected. Re-queue to try again shortly.
                     await RequeueMessageAsync(queueItem, delaySeconds: 10);
@@ -133,7 +133,7 @@ namespace BKBot.Function
                 finally
                 {
                     // Always release lock to prevent user starvation
-                    await _redisDb.KeyDeleteAsync(lockKey);
+                    if (isLocked) await _redisDb.KeyDeleteAsync(lockKey);
                 }
             }
         }
