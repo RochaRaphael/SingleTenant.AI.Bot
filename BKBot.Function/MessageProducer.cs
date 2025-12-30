@@ -22,6 +22,11 @@ namespace BKBot.Function
         // Safeguard to protect Queue and Redis payloads
         private const int MAX_INFRA_CHAR_LIMIT = 5000;
 
+        // An Evolution image/video JSON file is typically 5kb to 50kb.
+        // We'll set it to 200KB (200 * 1024 bytes) to ensure media passes through the parser,
+        // but we block DoS attacks (e.g., 10MB payloads).
+        private const long MAX_PAYLOAD_BYTES = 200 * 1024;
+
         public MessageProducer(ILogger<MessageProducer> logger, ChatSessionService chatSessionService, QueueClient queueClient, EvolutionService evolutionService)
         {
             _logger = logger;
@@ -47,7 +52,7 @@ namespace BKBot.Function
             try
             {
                 // Fast-fail: Check Content-Length to reject massive payloads before stream reading
-                if (req.Body.Length > MAX_INFRA_CHAR_LIMIT * 2)
+                if (req.Body.Length > MAX_PAYLOAD_BYTES)
                 {
                     log.LogWarning("[SECURITY] Payload size exceeded limit. Size: {PayloadSize}", req.Body.Length);
                     return req.CreateResponse(HttpStatusCode.BadRequest);
@@ -58,6 +63,24 @@ namespace BKBot.Function
                 var messageData = await _evolutionService.ParseWebhookAsync(req.Body);
                 if (messageData == null) return response;
 
+                bool isText = messageData.MessageType == "conversation" ||
+                              messageData.MessageType == "extendedTextMessage";
+
+                if (!isText)
+                {
+                    log.LogWarning("[MEDIA FILTER] Rejected Type: {Type} de {Phone}", messageData.MessageType, messageData.Phone);
+
+                    // Mensagem amigável para o usuário
+                    await _evolutionService.SendMessageAsync(
+                        messageData.Phone,
+                        "?? *Ops!* Eu sou uma inteligência artificial focada em texto.\n\nNão consigo ver imagens, ouvir áudios ou assistir vídeos. Por favor, digite sua dúvida em texto para que eu possa te ajudar! ??",
+                        log
+                    );
+
+                    // Retorna OK e PARA O PROCESSO AQUI. Não vai pra fila nem pro Redis.
+                    return response;
+                }
+
                 using (log.BeginScope(new Dictionary<string, object> { ["PhoneNumber"] = messageData.Phone }))
                 {
                     if (messageData.Text.Length > MAX_INFRA_CHAR_LIMIT)
@@ -65,7 +88,7 @@ namespace BKBot.Function
                         log.LogWarning("[ABUSE] Text length exceeds technical limit. Chars: {CharCount}", messageData.Text.Length);
                         await _evolutionService.SendMessageAsync(
                             messageData.Phone,
-                            "*Message too long!* \n\nPlease send shorter messages to ensure processing.",
+                            "*Mensagem muito longa!* \n\nSeu texto excede o limite técnico de processamento. Por favor, envie mensagens mais curtas.",
                             log
                         );
                         return response;
@@ -77,7 +100,7 @@ namespace BKBot.Function
                     // Queue Trigger:
                     // We schedule the message with a visibility timeout equal to the debounce window.
                     // This allows the Consumer to ignore premature triggers if the user is still typing.
-                    var queueItem = new MessageQueueItem { Phone = messageData.Phone };
+                    var queueItem = new MessageQueueItemModel { Phone = messageData.Phone };
                     string jsonMessage = JsonSerializer.Serialize(queueItem);
 
                     await _queueClient.SendMessageAsync(

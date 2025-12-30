@@ -86,5 +86,18 @@ namespace BKBot.Applications.Services
             string key = $"chat_state:{phoneNumber}";
             await _redisDb.StringSetAsync(key, newState, _expiration);
         }
+
+        public async Task SaveLastBotResponseAsync(string phoneNumber, string response)
+        {
+            string key = $"last_bot_msg:{phoneNumber}";
+            await _redisDb.StringSetAsync(key, response, _expiration);
+        }
+
+        public async Task<string?> GetLastBotResponseAsync(string phoneNumber)
+        {
+            string key = $"last_bot_msg:{phoneNumber}";
+            var val = await _redisDb.StringGetAsync(key);
+            return val.IsNullOrEmpty ? null : val.ToString();
+        }
     }
 }

@@ -44,7 +44,7 @@ namespace BKBot.Function
         /// </summary>
         [Function("HandleMessageReply")]
         public async Task Run(
-            [QueueTrigger("whatsapp-process-queue", Connection = "AzureWebJobsStorage")] MessageQueueItem queueItem,
+            [QueueTrigger("whatsapp-process-queue", Connection = "AzureWebJobsStorage")] MessageQueueItemModel queueItem,
             FunctionContext executionContext)
         {
             var log = executionContext.GetLogger("HandleMessageReply");
@@ -110,10 +110,14 @@ namespace BKBot.Function
 
                     string? currentState = await _chatSessionService.GetStateAsync(phone);
 
-                    string responseText = await _llmService.GetAIResponseAsync(consolidatedText, currentState);
+                    string? lastBotMsg = await _chatSessionService.GetLastBotResponseAsync(phone);
+
+                    string responseText = await _llmService.GetAIResponseAsync(consolidatedText, currentState, lastBotMsg);
 
                     await _evolutionService.SendMessageAsync(phone, responseText, log);
-                    
+
+                    await _chatSessionService.SaveLastBotResponseAsync(phone, responseText);
+
                     string newState = await _llmService.GenerateNewStateAsync(currentState, consolidatedText, responseText);
 
                     await _chatSessionService.SaveStateAsync(phone, newState);
@@ -138,7 +142,7 @@ namespace BKBot.Function
             }
         }
 
-        private async Task RequeueMessageAsync(MessageQueueItem item, int delaySeconds)
+        private async Task RequeueMessageAsync(MessageQueueItemModel item, int delaySeconds)
         {
             string jsonMessage = JsonSerializer.Serialize(item);
             await _queueClient.SendMessageAsync(

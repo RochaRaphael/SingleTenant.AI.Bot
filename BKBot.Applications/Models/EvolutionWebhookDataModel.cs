@@ -6,9 +6,10 @@ using System.Threading.Tasks;
 
 namespace BKBot.Applications.Models
 {
-    public class EvolutionWebhookData
+    public class EvolutionWebhookDataModel
     {
         public string Phone { get; set; }
         public string Text { get; set; }
+        public string MessageType { get; set; }
     }
 }

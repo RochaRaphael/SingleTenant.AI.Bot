@@ -55,12 +55,11 @@ namespace BKBot.Applications.Services
         /// <summary>
         /// Parses the incoming webhook stream and normalizes the WhatsApp data structure.
         /// </summary>
-        public async Task<EvolutionWebhookData?> ParseWebhookAsync(Stream requestBodyStream)
+        public async Task<EvolutionWebhookDataModel?> ParseWebhookAsync(Stream requestBodyStream)
         {
             try
             {
                 string requestBody = await new StreamReader(requestBodyStream).ReadToEndAsync();
-
                 if (string.IsNullOrWhiteSpace(requestBody)) return null;
 
                 var root = JObject.Parse(requestBody);
@@ -71,12 +70,10 @@ namespace BKBot.Applications.Services
 
                 var dataToken = root["data"];
                 var msgData = (dataToken is JArray array) ? array.FirstOrDefault() : dataToken;
-
                 if (msgData == null) return null;
 
                 // Filter loop: Ignore messages sent by the bot itself
-                bool fromMe = (bool?)msgData["key"]?["fromMe"] ?? false;
-                if (fromMe) return null;
+                if ((bool?)msgData["key"]?["fromMe"] ?? false) return null; ;
 
                 // Normalize Phone Number (handle Jid variations)
                 string remoteJid = msgData["key"]?["remoteJid"]?.ToString();
@@ -85,23 +82,50 @@ namespace BKBot.Applications.Services
                                     ? remoteJidAlt : remoteJid;
 
                 string? phone = targetJid?.Replace("@s.whatsapp.net", "").Replace("@lid", "");
-
                 if (string.IsNullOrWhiteSpace(phone)) return null;
 
                 // Extract text from various message types (conversation, extended, media caption)
                 var messageNode = msgData["message"];
-                string text = messageNode?["conversation"]?.ToString() ??
-                              messageNode?["extendedTextMessage"]?["text"]?.ToString() ??
-                              messageNode?["imageMessage"]?["caption"]?.ToString() ??
-                              messageNode?["videoMessage"]?["caption"]?.ToString() ??
-                              "";
+                if (messageNode == null) return null;
 
-                if (string.IsNullOrWhiteSpace(text)) return null;
+                // Se for mensagem temporária, o conteúdo real está um nível abaixo
+                if (messageNode["ephemeralMessage"] != null)
+                {
+                    messageNode = messageNode["ephemeralMessage"]?["message"];
+                }
 
-                return new EvolutionWebhookData
+                if (messageNode == null) return null;
+
+                string messageType = "unknown";
+                string? extractedText = null;
+
+                // Verifica se é TEXTO REAL (Os únicos que importam o conteúdo)
+                if (messageNode["conversation"] != null)
+                {
+                    messageType = "conversation";
+                    extractedText = messageNode["conversation"]?.ToString();
+                }
+                else if (messageNode["extendedTextMessage"] != null)
+                {
+                    messageType = "extendedTextMessage";
+                    extractedText = messageNode["extendedTextMessage"]?["text"]?.ToString();
+                }
+                // Verifica se é MÍDIA (Apenas identificamos o tipo, ignoramos legenda)
+                else if (messageNode["imageMessage"] != null) messageType = "imageMessage";
+                else if (messageNode["videoMessage"] != null) messageType = "videoMessage";
+                else if (messageNode["audioMessage"] != null) messageType = "audioMessage";
+                else if (messageNode["stickerMessage"] != null) messageType = "stickerMessage";
+                else if (messageNode["documentMessage"] != null) messageType = "documentMessage";
+
+                // Se for "unknown", ignoramos (ex: protocolMessage, reactionMessage)
+                if (messageType == "unknown") return null;
+
+                // Se for texto, retorna o texto. Se for mídia, retorna null ou uma tag visual.
+                return new EvolutionWebhookDataModel
                 {
                     Phone = phone,
-                    Text = text
+                    MessageType = messageType,
+                    Text = extractedText
                 };
             }
             catch

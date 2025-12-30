@@ -13,7 +13,7 @@ namespace BKBot.Applications.Services.LLMServices
             _openAIClient = openAIClient;
         }
 
-        public async Task<string> GetAIResponseAsync(string userQuery, string? currentState)
+        public async Task<string> GetAIResponseAsync(string userQuery, string? currentState, string? lastAssistantResponse)
         {
             try
             {
@@ -21,13 +21,18 @@ namespace BKBot.Applications.Services.LLMServices
 
                 var messages = new List<ChatMessage>
                 {
-                    new SystemChatMessage("Você é o Luffy do One Piece. Responda de forma divertida e direta.")
+                    //Write your prompt here.
+                    new SystemChatMessage("Você é um assistente virtual")
                 };
 
-                // Só adicionamos a memória se ela realmente existir
                 if (!string.IsNullOrWhiteSpace(currentState))
                 {
-                    messages.Add(new SystemChatMessage($"Contexto da conversa atual: {currentState}"));
+                    messages.Add(new SystemChatMessage($"RESUMO DA CONVERSA ANTERIOR (Contexto):\n{currentState}"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(lastAssistantResponse))
+                {
+                    messages.Add(new AssistantChatMessage(lastAssistantResponse));
                 }
 
                 messages.Add(new UserChatMessage(userQuery));
@@ -46,8 +51,6 @@ namespace BKBot.Applications.Services.LLMServices
             try
             {
                 ChatClient chatClient = _openAIClient.GetChatClient(DeploymentName);
-
-                // Tratamos o estado anterior caso seja a primeira mensagem
                 string context = string.IsNullOrWhiteSpace(previousState)
                     ? "Nenhum (esta é a primeira mensagem da conversa)."
                     : previousState;

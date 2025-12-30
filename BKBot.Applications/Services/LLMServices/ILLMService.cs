@@ -5,7 +5,8 @@ namespace BKBot.Applications.Services.LLMServices
     {
         Task<string> GetAIResponseAsync(
             string userQuery,
-            string? currentState);
+            string? currentState,
+            string? lastAssistantResponse);
 
         Task<string> GenerateNewStateAsync(
             string? previousState,
